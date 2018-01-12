@@ -1,5 +1,5 @@
-FROM nginx:1.12.1-alpine
-RUN apk add openssl
+FROM nginx:1.13.7-alpine
+RUN apk --update add openssl
 
 RUN mkdir -p /etc/nginx/ssl && \
     openssl req -x509 \
