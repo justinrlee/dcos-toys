@@ -1,0 +1,159 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+## Migrated from dcos-toolbox
+
+Mappings:
+  RegionMap:
+    us-east-1:
+      AMI: ami-db48ada1
+    us-east-2:
+      AMI: ami-d61133b3
+    us-west-1:
+      AMI: ami-8a6751ea
+    us-west-2:
+      AMI: ami-e535c59d
+
+Outputs:
+  StackRef:
+    Value: !Ref PrimaryVPC
+
+Parameters:
+  NumInstances:
+    Type: Number
+    Default: 8
+  Owner:
+    Type: String
+    Default: "Justin Lee"
+
+Resources:
+  PrimaryVPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: StackId
+          Value: !Ref AWS::StackId
+        - Key: Owner
+          Value: !Ref Owner
+
+  # Set up ability to reach internet:
+  # IGW
+  PrimaryVPCInternetGateway:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+        - Key: StackId
+          Value: !Ref AWS::StackId
+        - Key: Owner
+          Value: !Ref Owner
+
+  # Attach IGW to VPC
+  AttachIGWtoVPC:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      VpcId: !Ref PrimaryVPC
+      InternetGatewayId: !Ref PrimaryVPCInternetGateway
+    DependsOn:
+      - PrimaryVPC
+      - PrimaryVPCInternetGateway
+
+  # Create Route Table
+  VPCDefaultRouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref PrimaryVPC
+    DependsOn:
+      - PrimaryVPC
+
+  # Create Route
+  IGWRoute:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref VPCDefaultRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref PrimaryVPCInternetGateway
+    DependsOn:
+      - AttachIGWtoVPC
+
+  # Subnet
+  PublicSubnet:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref PrimaryVPC
+      AvailabilityZone: !Select 
+        - 0
+        - !GetAZs 
+          Ref: 'AWS::Region'
+      Tags:
+        - Key: StackId
+          Value: !Ref AWS::StackId
+        - Key: Owner
+          Value: !Ref Owner
+    DependsOn: PrimaryVPC
+
+  # Attach subnets to VPCDefaultRouteTable
+  PublicSubnetToVPCDefaultRouteTable:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref VPCDefaultRouteTable
+    DependsOn:
+      - PublicSubnet
+      - VPCDefaultRouteTable
+
+  SSHSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId: !Ref PrimaryVPC
+      GroupDescription: Enable SSH access via port 22
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: -1
+          CidrIp: 10.0.0.0/8
+
+  CentOSLaunchConfig:
+    Type: "AWS::AutoScaling::LaunchConfiguration"
+    Properties:
+      AssociatePublicIpAddress: true
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sda1"
+          Ebs:
+            VolumeSize: 30
+      EbsOptimized: true
+      ImageId: !FindInMap
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - AMI
+      InstanceType: m4.xlarge
+      KeyName: default
+      SecurityGroups:
+        - !Ref SSHSecurityGroup
+    DependsOn:
+      - PublicSubnetToVPCDefaultRouteTable
+      - AttachIGWtoVPC
+
+  CentOSAutoScalingGroup:
+    Type: "AWS::AutoScaling::AutoScalingGroup"
+    Properties:
+      DesiredCapacity: !Ref NumInstances
+      MaxSize: !Ref NumInstances
+      MinSize: !Ref NumInstances
+      LaunchConfigurationName: !Ref CentOSLaunchConfig
+      VPCZoneIdentifier:
+        - !Ref PublicSubnet
+      Tags:
+        - Key: StackId
+          Value: !Ref AWS::StackId
+          PropagateAtLaunch: true
+        - Key: Owner
+          Value: !Ref Owner
+          PropagateAtLaunch: true
+    DependsOn:
+      - CentOSLaunchConfig
