@@ -79,4 +79,4 @@ We can now replace master 1, because it will no longer break lexical order (10.1
 
 And so forth.  After this, we can replace masters 3, 4, and 5, because this order will not change any zk server IDs.
 
-A Python (2) script to achieve this can be found at https://github.com/justinrlee/dcos-toys/blob/master/master-replacement-order/order.py
+A Python (2) script to achieve this can be found at https://github.com/justinrlee/dcos-toys/blob/master/master-replacement-order/order.py (Python 2 is used instead of 3 because it's readily available on all *nix systems)
