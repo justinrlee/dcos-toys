@@ -48,8 +48,8 @@ and moving to:
 We can't yet replace master 1, because that would put 1 and 2 out of lexical order:
 
 ```
-1: 10.10.0.184
-2: 10.10.0.158
+1: 10.10.0.184 < - would come after 10.10.0.158, and generate a non-matching zk node id of 2
+2: 10.10.0.158 < - would come before 10.10.0.184, and generate a non-matching zk node id of 1
 3: 10.10.0.236
 4: 100.10.0.158
 5: 100.10.0.66
