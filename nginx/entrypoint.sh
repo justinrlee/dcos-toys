@@ -1,6 +1,5 @@
 #!/bin/bash
 /opt/splunkforwarder/bin/splunk start --accept-license
-env >> /tmp/env
 
 if [[ -z "$SPLUNK_SERVER" ]];
 then
