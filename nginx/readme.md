@@ -21,6 +21,9 @@ docker run -d -e SPLUNK_SERVER=192.168.10.27:9997 -e SPLUNK_LOG_DIRECTORIES="/va
 ```json
 {
   "id": "/nginx-splunk",
+  "cpus": 1.0,
+  "mem": 128,
+  "instances": 1,
   "container": {
     "portMappings": [
       {
@@ -34,13 +37,10 @@ docker run -d -e SPLUNK_SERVER=192.168.10.27:9997 -e SPLUNK_LOG_DIRECTORIES="/va
       "image": "justinrlee/nginx:splunk"
     }
   },
-  "cpus": 1.0
   "env": {
     "SPLUNK_SERVER": "192.168.10.27:9997",
     "SPLUNK_LOG_DIRECTORIES": "/var/log/nginx"
   },
-  "instances": 1,
-  "mem": 128,
   "networks": [
     {
       "mode": "container/bridge"
