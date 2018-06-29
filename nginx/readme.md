@@ -29,7 +29,7 @@ docker run -d -e SPLUNK_SERVER=192.168.10.27:9997 -e SPLUNK_LOG_DIRECTORIES="/va
       {
         "containerPort": 80,
         "hostPort": 0,
-        "protocol": "tcp",
+        "protocol": "tcp"
       }
     ],
     "type": "DOCKER",
