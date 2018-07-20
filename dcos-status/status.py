@@ -14,7 +14,21 @@ import getpass
 import json
 import os
 import copy
+import logging
 # Using requests's built-in json parser
+
+# Logging - todo configure as flag
+# try: # for Python 3
+#     from http.client import HTTPConnection
+# except ImportError:
+#     from httplib import HTTPConnection
+# HTTPConnection.debuglevel = 1
+
+# logging.basicConfig() # you need to initialize logging, otherwise you will not see anything from requests
+# logging.getLogger().setLevel(logging.DEBUG)
+# requests_log = logging.getLogger("urllib3")
+# requests_log.setLevel(logging.DEBUG)
+# requests_log.propagate = True
 
 # Disable auth InsecureRequestWarning
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
@@ -24,6 +38,7 @@ requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 # Hack to get working in proxy environment (basically ignores proxy)
 session = requests.Session()
 session.trust_env = False
+session.verify = False
 
 RESOURCE_STRING = "    {resource:<12}:{allocated:>12.2f} / {total:<12.2f} {unit:<8} {percentage:>6.2f} %"
 CONTAINER_RESOURCE_STRING = "            {resource:<4}:{used:>8.2f} / {allocated:<8.2f} {unit:<8} {percentage:>6.2f} %"
@@ -72,6 +87,23 @@ def dget(item, ks, default):
         else:
             return default
 
+def get_and_follow_redirects(url, token = None):
+    # protocol = url[0:url.find(':') + 1]
+    headers = {'Authorization': "token={token}".format(token=token)}
+    protocol = "https:"
+    try:
+        r = session.get(protocol + '//' + url, headers=headers, allow_redirects=False)
+    except requests.exceptions.SSLError as e:
+        # Listening only on http, demote to http (not tested) and retry
+        protocol = "http:"
+        r = session.get(protocol + '//' + url, headers=headers, allow_redirects=False)
+    while r.status_code == 307:
+        url = r.headers['Location']
+        if url[0] == '/':
+            url = protocol + url
+        # print(url)
+        r = session.get(url, headers=headers, allow_redirects=False)
+    return r
 
 def get_auth_token(hostname, username, password):
     if hostname is None:
@@ -85,8 +117,8 @@ def get_auth_token(hostname, username, password):
     token = response['token'] if 'token' in response else None
     return token
 
-
 def login(hostname = None):
+    print("Logging in")
     if hostname is None:
         hostname = socket.gethostname()
     token = None
@@ -101,37 +133,41 @@ def login(hostname = None):
 
 
 '''.json() Doesn't actually return json - it's roughly equivalent to json.loads'''
-def get_json(url):
-    req = session.get(url)
-    return req.json()
+def get_json(url, token = None):
+    # print(url)
+    return get_and_follow_redirects(url, token).json()
 
-def get_slaves(hostname = None):
+def get_slaves(hostname = None, strict = False, token = None):
     if hostname is None:
         hostname = socket.gethostname()
     port = 5050
 
-    slaves_url = "http://{hostname}:{port}/slaves".format(hostname=hostname, port=port)
+    # if strict:
+    #     slaves_url = "https://{hostname}:{port}/master/slaves".format(hostname=hostname, port=port)
+    # else:
+    slaves_url = "{hostname}:{port}/master/slaves".format(hostname=hostname, port=port)
 
-    return get_json(slaves_url)
+    return get_json(slaves_url, token)
 
-def get_state_json(hostname = None):
+def get_state_json(hostname = None, token = None):
     if hostname is None:
         hostname = socket.gethostname()
     port = 5050
 
-    url = "http://{hostname}:{port}/state.json".format(hostname=hostname, port=port)
+    url = "{hostname}:{port}/state.json".format(hostname=hostname, port=port)
 
-    return get_json(url)
+    return get_json(url, token)
 
-def get_statistics(hostname):
+def get_statistics(hostname, token = None):
     port = 5051
 
-    containers_url = "http://{hostname}:{port}/monitor/statistics.json".format(
+    containers_url = "{hostname}:{port}/monitor/statistics.json".format(
         hostname=hostname, port=port)
 
     try:
-        containers = get_json(containers_url)
-    except:
+        containers = get_json(containers_url, token)
+    except Exception as e:
+        print(e)
         print("Unable to connect to slave at {}.".format(containers_url))
         containers = None
     return containers
@@ -196,19 +232,27 @@ def print_app(app, level):
     # print("    {} MB Disk".format(disk=app['disk']))
     # print("          {} Cores\n, {} GPUs\n, {} MB Memory\n, {} MB Disk\n".format(app['cpus'], app['gpus'], app['mem'], app['disk']))
     cprint("")
-    if len(app['ports']) > 0 and len(app['ports']) < 10:
-        lpad("Ports:")
-        for port in app['ports']:
-            lpad(" - {}".format(port))
-        cprint("")
-    elif len(app['ports']) >= 10:
-        lpad("Ports: " + ','.join(str(x) for x in app['ports']))
-        cprint("")
+    if 'ports' in app:
+        if len(app['ports']) > 0 and len(app['ports']) < 10:
+            lpad("Ports:")
+            for port in app['ports']:
+                lpad(" - {}".format(port))
+            cprint("")
+        elif len(app['ports']) >= 10:
+            lpad("Ports: " + ','.join(str(x) for x in app['ports']))
+            cprint("")
 
-    if len(app['uris']) > 0:
-        lpad("URIs:")
-        for uri in app['uris']:
-            lpad(" - {}".format(uri),4)
+    if 'uris' in app or 'fetch' in app:
+        if 'uris' in app:
+            uris = app['uris']
+        else:
+            uris = [x['uri'] for x in app['fetch']]
+
+        if len(uris) > 0:
+            lpad("URIs:")
+            for uri in uris:
+                lpad(" - {}".format(uri),4)
+
     if level > 1:
         if len(app['env']) > 0:
             cprint("")
@@ -220,6 +264,17 @@ def print_app(app, level):
             lpad("Labels:")
             for v in sorted(app['labels']):
                 lpad("\"{}\" : \"{}\"".format(v, app['labels'][v]), 8)
+
+    # if 'fetch' in app:
+    #     uris = [x['uri'] for x in app['fetch']]
+    #     # print(uris)
+    #     if len(uris) > 0:
+    #         lpad("URIs:")
+    #         for uri in uris:
+    #             lpad(" - {}".format(uri),4)
+
+    # print(app)
+    # TODO: handle different network configs and handle ports for different network configs
 
 
 
@@ -261,7 +316,7 @@ def calculate_container_stats(start, end):
 #### Also need to refactor to rearrange function
 # Memory and disk in megabytes, percentage already multiplied by 100
 def print_stats(allocated, total, percentage):
-    cprint("    [Resource]  : [Allocated] / [Total]      [Units]  [Percentage]")
+    cprint("    [Resource]  : [Allocated] / [Total]      [Units]  [Allocated]")
 
     if total['cpus'] > 0:
         cprint(RESOURCE_STRING.format(resource = "CPU", 
@@ -770,7 +825,7 @@ def print_agent_info(slaves, get_container_stats, get_reservation_breakdown, wai
     data_end = {}
     if get_container_stats:
         for slave in slaves:
-            stats = get_statistics(slave['hostname'])
+            stats = get_statistics(slave['hostname'], token)
             if stats is not None:
                 data_start[slave['hostname']] = {
                     container['executor_id']:container for container in stats}
@@ -778,12 +833,16 @@ def print_agent_info(slaves, get_container_stats, get_reservation_breakdown, wai
         # Wait between polls.  Precision not necessary.
         time.sleep(wait)
         for slave in slaves:
-            stats = get_statistics(slave['hostname'])
+            stats = get_statistics(slave['hostname'], token)
             if stats is not None:
                 data_end[slave['hostname']] = {
                     container['executor_id']:container for container in stats}
 
-    for slave in slaves:
+    sorted_slaves = sorted(slaves, key=lambda k: ('public_ip' in k['attributes'], k['hostname']))
+    # sorted_slaves = sorted(slaves, key=lambda k: ('public_ip' in k['attributes']))
+    # for slave in sorted_slaves:
+    #     print(slave['hostname'])
+    for slave in sorted_slaves:
         hostname = slave['hostname']
         # print(slave)
         slave_type = 'slave_public' if 'public_ip' in slave['attributes'] else 'slave'
@@ -887,6 +946,9 @@ if __name__ == '__main__':
                         default=5)
     parser.add_argument("-t", "--token-file")
     parser.add_argument("-s", "--save-token")
+    parser.add_argument("-S", "--strict",
+                        help="Strict mode",
+                        action="store_true", default=False)
     parser.add_argument("--version",
                         action="store_true", default=False)
 
@@ -897,7 +959,6 @@ if __name__ == '__main__':
         print("Version {}".format(VERSION))
         exit(0)
     # print(args)
-
 
     WAIT = int(args.wait)
 
@@ -921,15 +982,18 @@ if __name__ == '__main__':
     if args.print_reservations:
         RESERVATION_BREAKDOWN = True
 
-
+    STRICT = args.strict
 
     # This is all messy as hell.  Needs to be cleaned up.
     GET_MARATHON = args.get_apps
     SHOW_INACTIVE = args.show_inactive
     GET_NETWORK = args.get_network
 
-    if GET_MARATHON and token == None:
+    if token == None:
         token = login(args.master)
+        session.headers.update({'Authorization': "token={token}".format(token=token)})
+        
+        # headers = {'authorization': "token={token}".format(token=token)}
         # token = get_auth_token(None, 'admin', 'thisismypassword') # Defaults for testing
         # print(token)
 
@@ -941,11 +1005,10 @@ if __name__ == '__main__':
         apps, json_string = get_marathon_apps(args.master, token)
         print_marathon_apps(apps, GET_MARATHON, SHOW_INACTIVE)
     
-
     # exit(0)
     if GET_MARATHON == 0:
         try:
-            slaves = get_slaves(args.master)
+            slaves = get_slaves(args.master, STRICT, token)
         except requests.exceptions.ConnectionError:
             if args.master == None:
                 print("Nothing found listening locally on port 5050; specify a master hostname/IP address with -m option")
@@ -965,7 +1028,7 @@ if __name__ == '__main__':
 
     if GET_NETWORK:
         try:
-            state = get_state_json(args.master)
+            state = get_state_json(args.master, token)
         except requests.exceptions.ConnectionError:
             if args.master == None:
                 print("Nothing found listening locally on port 5050; specify a master hostname/IP address with -m option")
