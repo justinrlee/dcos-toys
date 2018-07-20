@@ -3,6 +3,7 @@
 
 import sys
 sys.path.append('/opt/mesosphere/lib/python3.5/site-packages')
+sys.path.append('/opt/mesosphere/lib/python3.6/site-packages')
 
 import argparse
 import socket
