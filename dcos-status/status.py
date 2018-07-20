@@ -213,9 +213,10 @@ def print_app(app, level):
     cprint("")    
     lpad("Docker Image:    {}".format(dget(app,['container','docker','image'],'N/A')))
     cprint("")
-    lpad("Command:")
-    lpad("{}".format(app['cmd']),8)
-    cprint("")
+    if 'cmd' in app:    
+        lpad("Command:")
+        lpad("{}".format(app['cmd']),8)
+        cprint("")
     # print("Resources:")
     lpad("{} Instance(s), each with:".format(app['instances']))
     if app['cpus'] > 0:
