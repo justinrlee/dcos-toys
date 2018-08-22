@@ -117,15 +117,30 @@ def get_auth_token(hostname, username, password):
     token = response['token'] if 'token' in response else None
     return token
 
-def login(hostname = None):
+# Used to see if we need authentication
+def auth_needed(hostname = None, token = None):
+    if hostname is None:
+        hostname = socket.gethostname()
+    headers = {'content-type': 'application/json'}
+    data = {'type': 'GET_HEALTH'}
+    response = session.post("http://{hostname}/mesos/api/v1".format(hostname=hostname),
+                             headers=headers,
+                             data=json.dumps(data),
+                             verify=False)
+    return response.status_code != 200
+
+
+def login(hostname = None, username = None, password = None):
     print("Logging in")
     if hostname is None:
         hostname = socket.gethostname()
     token = None
     try:
-        while not token:
-            username = input("Username: ")
-            password = getpass.getpass("Password: ")
+        while auth_needed(hostname, token):
+            if not username:
+                username = input("Username: ")
+            if not password:
+                password = getpass.getpass("Password: ")
             token =  get_auth_token(hostname, username, password)
     except KeyboardInterrupt:
         exit(1)
@@ -137,14 +152,11 @@ def get_json(url, token = None):
     # print(url)
     return get_and_follow_redirects(url, token).json()
 
-def get_slaves(hostname = None, strict = False, token = None):
+def get_slaves(hostname = None, token = None):
     if hostname is None:
         hostname = socket.gethostname()
     port = 5050
 
-    # if strict:
-    #     slaves_url = "https://{hostname}:{port}/master/slaves".format(hostname=hostname, port=port)
-    # else:
     slaves_url = "{hostname}:{port}/master/slaves".format(hostname=hostname, port=port)
 
     return get_json(slaves_url, token)
@@ -947,9 +959,8 @@ if __name__ == '__main__':
                         default=5)
     parser.add_argument("-t", "--token-file")
     parser.add_argument("-s", "--save-token")
-    parser.add_argument("-S", "--strict",
-                        help="Strict mode",
-                        action="store_true", default=False)
+    parser.add_argument("-u", "--username")
+    parser.add_argument("-p", "--password")
     parser.add_argument("--version",
                         action="store_true", default=False)
 
@@ -983,15 +994,13 @@ if __name__ == '__main__':
     if args.print_reservations:
         RESERVATION_BREAKDOWN = True
 
-    STRICT = args.strict
-
     # This is all messy as hell.  Needs to be cleaned up.
     GET_MARATHON = args.get_apps
     SHOW_INACTIVE = args.show_inactive
     GET_NETWORK = args.get_network
 
     if token == None:
-        token = login(args.master)
+        token = login(args.master, username=args.username, password=args.password)
         session.headers.update({'Authorization': "token={token}".format(token=token)})
         
         # headers = {'authorization': "token={token}".format(token=token)}
@@ -1009,7 +1018,7 @@ if __name__ == '__main__':
     # exit(0)
     if GET_MARATHON == 0:
         try:
-            slaves = get_slaves(args.master, STRICT, token)
+            slaves = get_slaves(args.master, token)
         except requests.exceptions.ConnectionError:
             if args.master == None:
                 print("Nothing found listening locally on port 5050; specify a master hostname/IP address with -m option")
