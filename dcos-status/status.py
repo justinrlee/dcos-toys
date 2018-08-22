@@ -130,15 +130,17 @@ def auth_needed(hostname = None, token = None):
     return response.status_code != 200
 
 
-def login(hostname = None):
+def login(hostname = None, username = None, password = None):
     print("Logging in")
     if hostname is None:
         hostname = socket.gethostname()
     token = None
     try:
         while auth_needed(hostname, token):
-            username = input("Username: ")
-            password = getpass.getpass("Password: ")
+            if not username:
+                username = input("Username: ")
+            if not password:
+                password = getpass.getpass("Password: ")
             token =  get_auth_token(hostname, username, password)
     except KeyboardInterrupt:
         exit(1)
@@ -998,7 +1000,7 @@ if __name__ == '__main__':
     GET_NETWORK = args.get_network
 
     if token == None:
-        token = login(args.master)
+        token = login(args.master, username=args.username, password=args.password)
         session.headers.update({'Authorization': "token={token}".format(token=token)})
         
         # headers = {'authorization': "token={token}".format(token=token)}
