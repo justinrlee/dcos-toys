@@ -142,6 +142,9 @@ def login(hostname = None, username = None, password = None):
             if not password:
                 password = getpass.getpass("Password: ")
             token =  get_auth_token(hostname, username, password)
+            # So we don't get in an endless loop; if auth doesn't work, ask for username/password
+            username = None
+            password = None
     except KeyboardInterrupt:
         exit(1)
     return token
